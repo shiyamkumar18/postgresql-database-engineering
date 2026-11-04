@@ -1,0 +1,58 @@
+# PostgreSQL 16 + Python 3.11 for mock data generation & tests.
+# Init scripts under ./init are auto-run on first start in alphabetical order.
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: subly-db
+    environment:
+      POSTGRES_USER: subly
+      POSTGRES_PASSWORD: subly
+      POSTGRES_DB: subly_test
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d:ro
+      - ./scripts:/scripts:ro
+      - ./queries:/queries:ro
+      - ./explain:/explain:ro
+      - ./transactions:/transactions:ro
+      - ./data_quality:/data_quality:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U subly -d subly_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_preload_libraries=pg_stat_statements"
+      - "-c"
+      - "track_io_timing=on"
+      - "-c"
+      - "track_activities=on"
+      - "-c"
+      - "log_min_duration_statement=200"  # log slow queries > 200ms
+
+  tests:
+    profiles: ["tools"]
+    image: python:3.11-slim
+    container_name: subly-tests
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://subly:subly@db:5432/subly_test
+    volumes:
+      - ./tests:/tests:ro
+      - ./scripts:/scripts:ro
+      - ./requirements.txt:/requirements.txt:ro
+    working_dir: /tests
+    command: >
+      bash -lc "pip install --quiet -r /requirements.txt
+      && pytest -v"
+
+volumes:
+  db-data:
